@@ -127,11 +127,14 @@ def run_round(udid, comics, out, label, scale):
             # only a spinner. On a slow machine (like a CI runner) the log line can arrive late
             # and screenshots are slow, so a shot that ends after the app moves on doesn't count.
             last = measured = None
+            shots = blank = 0
             while time.time() - opened < HOLD_SECONDS - 1:
                 subprocess.run(["xcrun", "simctl", "io", udid, "screenshot", attempt], check=True, capture_output=True)
                 if time.time() - opened > HOLD_SECONDS - 0.2:
                     break
+                shots += 1
                 current = measure(attempt, scale)
+                blank += current[0] is None
                 if current[0] is not None:
                     measured = current
                     os.replace(attempt, shot)
@@ -142,7 +145,7 @@ def run_round(udid, comics, out, label, scale):
             if os.path.exists(attempt):
                 os.remove(attempt)
             if measured is None:
-                print(f"comic {num}: missed, log line came {lag:.1f} s late")
+                print(f"comic {num}: missed (log line {lag:.1f} s late, {shots} screenshots in time, {blank} with no comic)")
                 continue
             results[num] = report(shot, scale, measured)
         return results
@@ -167,6 +170,9 @@ def main():
     if args.app:
         subprocess.run(["xcrun", "simctl", "install", args.udid, args.app], check=True)
     subprocess.run(["xcrun", "simctl", "ui", args.udid, "appearance", "light"], check=True)
+    # Skip the first-launch offer of new-comic alerts, which would sit over the comics.
+    subprocess.run(["xcrun", "simctl", "spawn", args.udid, "defaults", "write", BUNDLE,
+                    "askedAboutNewComicAlerts", "-bool", "YES"], check=True)
     out = tempfile.mkdtemp(prefix="pager-check.")
     results = []
     missed = 0
