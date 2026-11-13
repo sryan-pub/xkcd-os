@@ -16,6 +16,7 @@ The app is started with `-debugMode YES -pagerCheck "<numbers>"` (see DebugMode.
 light mode, portrait. Exits 1 if any comic is off-centre.
 """
 import argparse
+import datetime
 import os
 import subprocess
 import sys
@@ -83,6 +84,14 @@ def report(path, scale, measured=None):
     return centred
 
 
+def logged_time(line):
+    """When the app logged a compact `log stream` line, which can reach us seconds late."""
+    try:
+        return datetime.datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S.%f").timestamp()
+    except ValueError:
+        return time.time()
+
+
 def run_round(udid, comics, out, round_no, scale):
     """Launches the app with the comics to open and screenshots each as it settles."""
     log = subprocess.Popen(
@@ -105,15 +114,25 @@ def run_round(udid, comics, out, round_no, scale):
             if "PagerCheck opened" not in line:
                 continue
             num = line.rsplit(" ", 1)[-1].strip()
-            time.sleep(SETTLE_SECONDS)
+            opened = logged_time(line)
+            lag = time.time() - opened
+            time.sleep(max(0, SETTLE_SECONDS - lag))
             shot = os.path.join(out, f"round{round_no}-comic{num}.png")
-            # A comic still downloading shows only a spinner; look again while the app waits.
-            for _ in range(3):
+            # Measure once two screenshots in a row agree. A comic still downloading shows only a
+            # spinner, and a slow machine (like a CI runner) can still be animating the viewer in.
+            # The app keeps each comic open for 6 seconds.
+            last = None
+            shots = 0
+            while True:
                 subprocess.run(["xcrun", "simctl", "io", udid, "screenshot", shot], check=True, capture_output=True)
+                shots += 1
                 measured = measure(shot, scale)
-                if measured[0] is not None:
+                if (measured[0] is not None and measured == last) or time.time() - opened > 5:
                     break
-                time.sleep(0.8)
+                last = measured
+                time.sleep(0.4)
+            if shots > 2 or lag > 1:
+                print(f"comic {num}: log line {lag:.1f} s late, {shots} screenshots, last {time.time() - opened:.1f} s after opening")
             results.append(report(shot, scale, measured))
         return results
     finally:
