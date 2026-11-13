@@ -13,7 +13,7 @@ Build a Release copy for the Simulator first (Debug is too slow to compare), e.g
   xcodebuild -scheme XKCDReader -configuration Release -destination 'id=<UDID>' \\
       -derivedDataPath build/DerivedData-sim CODE_SIGNING_ALLOWED=NO build
 The app is started with `-debugMode YES -pagerCheck "<numbers>"` (see DebugMode.swift), in
-light mode, portrait. Exits 1 if any comic is off-centre.
+light mode, portrait. Exits 1 if any comic is off-centre, or still missed after two retries.
 """
 import argparse
 import datetime
@@ -29,6 +29,7 @@ BUNDLE = "app.xkcdrevival.reader"
 # picture's own edges.
 COMICS = [53, 162, 303, 386, 520, 627, 827, 936, 1010, 1337]
 SETTLE_SECONDS = 2.8
+HOLD_SECONDS = 6  # how long the app keeps each comic open (ComicGridScreen.runPagerCheck)
 
 
 def load_gray(path):
@@ -92,8 +93,11 @@ def logged_time(line):
         return time.time()
 
 
-def run_round(udid, comics, out, round_no, scale):
-    """Launches the app with the comics to open and screenshots each as it settles."""
+def run_round(udid, comics, out, label, scale):
+    """Launches the app with the comics to open and screenshots each as it settles.
+
+    Returns {comic: centred} for the comics it got a screenshot of in time.
+    """
     log = subprocess.Popen(
         ["xcrun", "simctl", "spawn", udid, "log", "stream", "--style", "compact",
          "--predicate", 'eventMessage BEGINSWITH "PagerCheck"'],
@@ -103,7 +107,7 @@ def run_round(udid, comics, out, round_no, scale):
         subprocess.run(["xcrun", "simctl", "launch", "--terminate-running-process", udid, BUNDLE,
                         "-debugMode", "YES", "-pagerCheck", " ".join(map(str, comics))],
                        check=True, capture_output=True)
-        results = []
+        results = {}
         deadline = time.time() + 60 + 9 * len(comics)
         for line in log.stdout:
             if time.time() > deadline:
@@ -113,27 +117,34 @@ def run_round(udid, comics, out, round_no, scale):
                 break
             if "PagerCheck opened" not in line:
                 continue
-            num = line.rsplit(" ", 1)[-1].strip()
+            num = int(line.rsplit(" ", 1)[-1])
             opened = logged_time(line)
             lag = time.time() - opened
             time.sleep(max(0, SETTLE_SECONDS - lag))
-            shot = os.path.join(out, f"round{round_no}-comic{num}.png")
-            # Measure once two screenshots in a row agree. A comic still downloading shows only a
-            # spinner, and a slow machine (like a CI runner) can still be animating the viewer in.
-            # The app keeps each comic open for 6 seconds.
-            last = None
-            shots = 0
-            while True:
-                subprocess.run(["xcrun", "simctl", "io", udid, "screenshot", shot], check=True, capture_output=True)
-                shots += 1
-                measured = measure(shot, scale)
-                if (measured[0] is not None and measured == last) or time.time() - opened > 5:
+            shot = os.path.join(out, f"{label}-comic{num}.png")
+            attempt = shot + ".tmp.png"
+            # Measure once two screenshots in a row agree, since a comic still downloading shows
+            # only a spinner. On a slow machine (like a CI runner) the log line can arrive late
+            # and screenshots are slow, so a shot that ends after the app moves on doesn't count.
+            last = measured = None
+            while time.time() - opened < HOLD_SECONDS - 1:
+                subprocess.run(["xcrun", "simctl", "io", udid, "screenshot", attempt], check=True, capture_output=True)
+                if time.time() - opened > HOLD_SECONDS - 0.2:
                     break
-                last = measured
-                time.sleep(0.4)
-            if shots > 2 or lag > 1:
-                print(f"comic {num}: log line {lag:.1f} s late, {shots} screenshots, last {time.time() - opened:.1f} s after opening")
-            results.append(report(shot, scale, measured))
+                current = measure(attempt, scale)
+                if current[0] is not None:
+                    measured = current
+                    os.replace(attempt, shot)
+                    if current == last:
+                        break
+                last = current
+                time.sleep(0.3)
+            if os.path.exists(attempt):
+                os.remove(attempt)
+            if measured is None:
+                print(f"comic {num}: missed, log line came {lag:.1f} s late")
+                continue
+            results[num] = report(shot, scale, measured)
         return results
     finally:
         log.terminate()
@@ -158,11 +169,20 @@ def main():
     subprocess.run(["xcrun", "simctl", "ui", args.udid, "appearance", "light"], check=True)
     out = tempfile.mkdtemp(prefix="pager-check.")
     results = []
+    missed = 0
     for round_no in range(1, args.rounds + 1):
-        results += run_round(args.udid, COMICS, out, round_no, args.scale)
+        got = run_round(args.udid, COMICS, out, f"round{round_no}", args.scale)
+        for retry in (1, 2):
+            missing = [c for c in COMICS if c not in got]
+            if not missing:
+                break
+            print(f"trying again for {' '.join(map(str, missing))}")
+            got.update(run_round(args.udid, missing, out, f"round{round_no}-retry{retry}", args.scale))
+        results += got.values()
+        missed += len(COMICS) - len(got)
     off = results.count(False)
-    print(f"{off} of {len(results)} comics off-centre. Screenshots: {out}")
-    return 0 if results and off == 0 else 1
+    print(f"{off} of {len(results)} comics off-centre, {missed} missed. Screenshots: {out}")
+    return 0 if results and off == 0 and missed == 0 else 1
 
 
 if __name__ == "__main__":
