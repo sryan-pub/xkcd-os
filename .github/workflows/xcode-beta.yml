@@ -1,0 +1,28 @@
+name: Xcode beta
+
+# A weekly look at the next Xcode and iOS, and at iOS 18, the oldest the app supports.
+# Nothing waits on this workflow. A red run is a heads-up, not a blocker.
+# xcode-27 is the runner image with the newest Xcode; move it on when GitHub adds the next one.
+
+on:
+  schedule:
+    - cron: "23 14 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: xcode-27, xcode: beta, ios: newest }
+          - { runner: xcode-27, xcode: beta, ios: "18" }
+          - { runner: macos-15, xcode: stable, ios: "18" }
+    uses: ./.github/workflows/build-and-check.yml
+    with:
+      runner: ${{ matrix.runner }}
+      xcode: ${{ matrix.xcode }}
+      ios: ${{ matrix.ios }}

@@ -1,0 +1,71 @@
+name: Build and check
+
+# Shared by ci.yml and xcode-beta.yml. Builds the app for the Simulator, runs the
+# command-line checks and the pager alignment check.
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        required: true
+      xcode:
+        description: stable or beta
+        type: string
+        default: stable
+      ios:
+        description: newest, or a major version like 18
+        type: string
+        default: newest
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Xcode ${{ inputs.xcode }}, iOS ${{ inputs.ios }} (${{ inputs.runner }})
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
+    env:
+      APP: build/DerivedData/Build/Products/Release-iphonesimulator/XKCDReader.app
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Select Xcode
+        run: .github/scripts/select_xcode.sh "${{ inputs.xcode }}"
+
+      - name: Command-line checks
+        run: scripts/run_checks.sh
+
+      - name: Make a simulator
+        id: sim
+        run: |
+          python3 -I .github/scripts/make_simulator.py "${{ inputs.ios }}" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      - name: No iOS ${{ inputs.ios }} runtime
+        if: steps.sim.outputs.found != 'true'
+        run: echo "::notice::No iOS ${{ inputs.ios }} simulator runtime on ${{ inputs.runner }}, skipped the build."
+
+      - name: Build
+        if: steps.sim.outputs.found == 'true'
+        run: >
+          xcodebuild -project XKCDReader.xcodeproj -scheme XKCDReader -configuration Release
+          -destination "platform=iOS Simulator,arch=arm64,id=${{ steps.sim.outputs.udid }}"
+          -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO -quiet build
+
+      - name: Pager alignment check (${{ steps.sim.outputs.name }})
+        if: steps.sim.outputs.found == 'true'
+        env:
+          TMPDIR: ${{ runner.temp }}/pager/
+        run: |
+          mkdir -p "$TMPDIR"
+          python3 scripts/check_pager_alignment.py "${{ steps.sim.outputs.udid }}" --app "$APP" --rounds 1
+
+      - name: Upload screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pager-screenshots-${{ inputs.runner }}-xcode-${{ inputs.xcode }}-ios-${{ inputs.ios }}
+          path: ${{ runner.temp }}/pager/
+          if-no-files-found: ignore
