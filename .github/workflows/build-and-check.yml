@@ -60,7 +60,7 @@ jobs:
           TMPDIR: ${{ runner.temp }}/pager/
         run: |
           mkdir -p "$TMPDIR"
-          python3 scripts/check_pager_alignment.py "${{ steps.sim.outputs.udid }}" --app "$APP" --rounds 1
+          python3 scripts/check_pager_alignment.py "${{ steps.sim.outputs.udid }}" --app "$APP" --rounds 1 --hold 15
 
       - name: Upload screenshots
         if: failure()

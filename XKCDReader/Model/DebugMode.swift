@@ -10,7 +10,8 @@ import Foundation
 ///   comic and then its alt text ("alt"), explanation ("explain") or nothing more ("comic").
 ///   `-screenshot about` opens About. Works without the switch so no testing tools show.
 /// - `-debugMode YES -pagerCheck "53 827"` at launch (used by `scripts/check_pager_alignment.py`)
-///   opens those comics one after another the way the dice does
+///   opens those comics one after another the way the dice does, keeping each open for 6 seconds
+///   or `-pagerHold` seconds
 ///
 /// Put new testing tools behind this switch too.
 ///
@@ -32,6 +33,12 @@ enum DebugMode {
     static var pagerCheckComics: [Int] {
         guard isOn else { return [] }
         return (UserDefaults.standard.string(forKey: "pagerCheck") ?? "").split(separator: " ").compactMap { Int($0) }
+    }
+
+    /// Seconds the pager check keeps each comic open. Slow machines like CI runners need longer.
+    static var pagerCheckHold: Double {
+        let hold = UserDefaults.standard.double(forKey: "pagerHold")
+        return hold > 0 ? hold : 6
     }
 
     /// Launched by `scripts/make_screenshots.sh`, so skip the first-launch alerts offer.

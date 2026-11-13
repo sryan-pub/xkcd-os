@@ -6,13 +6,13 @@ On iOS 18 the page row could stop part-way between two comics after an old comic
 comics in a Simulator the way the dice does, screenshots each once it settles, and measures
 from the screenshot whether it's centred.
 
-  python3 scripts/check_pager_alignment.py <simulator UDID> [--app XKCDReader.app] [--rounds N]
+  python3 scripts/check_pager_alignment.py <simulator UDID> [--app XKCDReader.app] [--rounds N] [--hold S]
   python3 scripts/check_pager_alignment.py --image screenshot.png [--scale 3]
 
 Build a Release copy for the Simulator first (Debug is too slow to compare), e.g.
   xcodebuild -scheme XKCDReader -configuration Release -destination 'id=<UDID>' \\
       -derivedDataPath build/DerivedData-sim CODE_SIGNING_ALLOWED=NO build
-The app is started with `-debugMode YES -pagerCheck "<numbers>"` (see DebugMode.swift), in
+The app is started with `-debugMode YES -pagerCheck "<numbers>" -pagerHold S` (see DebugMode.swift), in
 light mode, portrait. Exits 1 if any comic is off-centre, or still missed after two retries.
 """
 import argparse
@@ -29,7 +29,6 @@ BUNDLE = "app.xkcdrevival.reader"
 # picture's own edges.
 COMICS = [53, 162, 303, 386, 520, 627, 827, 936, 1010, 1337]
 SETTLE_SECONDS = 2.8
-HOLD_SECONDS = 6  # how long the app keeps each comic open (ComicGridScreen.runPagerCheck)
 
 
 def load_gray(path):
@@ -93,7 +92,7 @@ def logged_time(line):
         return time.time()
 
 
-def run_round(udid, comics, out, label, scale):
+def run_round(udid, comics, out, label, scale, hold):
     """Launches the app with the comics to open and screenshots each as it settles.
 
     Returns {comic: centred} for the comics it got a screenshot of in time.
@@ -105,10 +104,10 @@ def run_round(udid, comics, out, label, scale):
     try:
         time.sleep(1)
         subprocess.run(["xcrun", "simctl", "launch", "--terminate-running-process", udid, BUNDLE,
-                        "-debugMode", "YES", "-pagerCheck", " ".join(map(str, comics))],
+                        "-debugMode", "YES", "-pagerCheck", " ".join(map(str, comics)), "-pagerHold", str(hold)],
                        check=True, capture_output=True)
         results = {}
-        deadline = time.time() + 60 + 9 * len(comics)
+        deadline = time.time() + 60 + (hold + 3) * len(comics)
         for line in log.stdout:
             if time.time() > deadline:
                 print("timed out waiting for the app")
@@ -128,9 +127,9 @@ def run_round(udid, comics, out, label, scale):
             # and screenshots are slow, so a shot that ends after the app moves on doesn't count.
             last = measured = None
             shots = blank = 0
-            while time.time() - opened < HOLD_SECONDS - 1:
+            while time.time() - opened < hold - 1:
                 subprocess.run(["xcrun", "simctl", "io", udid, "screenshot", attempt], check=True, capture_output=True)
-                if time.time() - opened > HOLD_SECONDS - 0.2:
+                if time.time() - opened > hold - 0.2:
                     break
                 shots += 1
                 current = measure(attempt, scale)
@@ -158,6 +157,8 @@ def main():
     parser.add_argument("udid", nargs="?", help="Simulator to run in")
     parser.add_argument("--app", help="XKCDReader.app to install first")
     parser.add_argument("--rounds", type=int, default=1, help="times to go through the comics")
+    parser.add_argument("--hold", type=float, default=6,
+                        help="seconds the app keeps each comic open (longer for slow machines like CI)")
     parser.add_argument("--image", help="only measure this screenshot")
     parser.add_argument("--scale", type=float, default=3, help="pixels per point (3 on iPhones)")
     args = parser.parse_args()
@@ -177,13 +178,13 @@ def main():
     results = []
     missed = 0
     for round_no in range(1, args.rounds + 1):
-        got = run_round(args.udid, COMICS, out, f"round{round_no}", args.scale)
+        got = run_round(args.udid, COMICS, out, f"round{round_no}", args.scale, args.hold)
         for retry in (1, 2):
             missing = [c for c in COMICS if c not in got]
             if not missing:
                 break
             print(f"trying again for {' '.join(map(str, missing))}")
-            got.update(run_round(args.udid, missing, out, f"round{round_no}-retry{retry}", args.scale))
+            got.update(run_round(args.udid, missing, out, f"round{round_no}-retry{retry}", args.scale, args.hold))
         results += got.values()
         missed += len(COMICS) - len(got)
     off = results.count(False)

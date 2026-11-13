@@ -96,7 +96,7 @@ struct ComicGridScreen: View {
         for num in nums {
             open(num)
             NSLog("PagerCheck opened %d", num)
-            try? await Task.sleep(for: .seconds(6))
+            try? await Task.sleep(for: .seconds(DebugMode.pagerCheckHold))
             focus.opened = nil
             focus.comic = nil
             try? await Task.sleep(for: .seconds(1))
