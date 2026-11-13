@@ -1,6 +1,6 @@
 ![Banner](Screenshots/banner.png)
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/sryan-pub/xkcd-os/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sryan-pub/xkcd-os/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## A free, ad-free, open-source, native, and universal xkcd.com reader for iOS. [Download it from the App Store!](https://apps.apple.com/app/id6833707708)
 
