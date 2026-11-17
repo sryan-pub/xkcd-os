@@ -36,7 +36,6 @@ struct ComicGridScreen: View {
     /// Debug Mode switch from the Settings app (Settings > xkcd > Debug Mode).
     @AppStorage(DebugMode.key) private var debugModeSwitch = false
     private var debugMode: Bool { DebugMode.isAvailable && debugModeSwitch }
-    @State private var randomFillsWidget = SharedSettings.randomFillsWidget
     @State private var notice: String?
 
     /// A comic requested before it can be shown, either because an alert or widget launched the app
@@ -133,10 +132,6 @@ struct ComicGridScreen: View {
                     guard SharedSettings.invertInDarkMode != invert else { return }
                     SharedSettings.invertInDarkMode = invert
                     WidgetCenter.shared.reloadAllTimelines()
-                }
-                .onChange(of: randomFillsWidget) { _, fill in
-                    SharedSettings.randomFillsWidget = fill
-                    WidgetCenter.shared.reloadTimelines(ofKind: "RandomComic")
                 }
                 .confirmationDialog("Remove downloaded comic images?", isPresented: $confirmClearCache, titleVisibility: .visible) {
                     Button("Clear Image Cache", role: .destructive) {
@@ -271,7 +266,6 @@ struct ComicGridScreen: View {
                 Divider()
                 Toggle("New Comic Alerts", systemImage: "bell", isOn: alertsBinding)
                 Toggle("Invert Comics in Dark Mode", systemImage: "circle.lefthalf.filled", isOn: $invertInDarkMode)
-                Toggle("Random Widget Fits Its Shape", systemImage: "rectangle.inset.filled", isOn: $randomFillsWidget)
                 Button("App Icon…", systemImage: "app.badge") {
                     showIconPicker = true
                 }

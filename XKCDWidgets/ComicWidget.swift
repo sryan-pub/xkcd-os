@@ -50,7 +50,7 @@ struct ComicProvider: TimelineProvider {
         let family = context.family
         do {
             var comic: WidgetComic
-            if mode == .random, SharedSettings.randomFillsWidget,
+            if mode == .random,
                let pick = WidgetPool.load()?.pick(aspect: comicAspect(in: context)),
                let fitted = try? await WidgetFetcher.comic(pick) {
                 comic = fitted
